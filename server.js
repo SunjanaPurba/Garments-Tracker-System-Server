@@ -6,10 +6,6 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// ✅ MODELS (ADD THIS)
-const Product = require('./models/Product');
-const Order = require('./models/Order');
-
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const app = express();
@@ -18,27 +14,19 @@ const port = process.env.PORT || 5000;
 /* ===============================
    ✅ CORS CONFIG
 ================================ */
-
 const allowedOrigins = [
   'http://localhost:5173',
   'https://garments-tracker-client.netlify.app',
 ];
 
-if (process.env.CLIENT_URL) {
-  allowedOrigins.push(process.env.CLIENT_URL);
-}
+if (process.env.CLIENT_URL) allowedOrigins.push(process.env.CLIENT_URL);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log('❌ Blocked by CORS:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
+      if (!origin) return callback(null, true); // server-to-server
+      if (allowedOrigins.includes(origin)) callback(null, true);
+      else callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
@@ -49,7 +37,6 @@ app.use(
 /* ===============================
    ✅ MIDDLEWARES
 ================================ */
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -57,18 +44,16 @@ app.use(cookieParser());
 /* ===============================
    ✅ ROUTES
 ================================ */
-
-// JWT
-app.use('/jwt', require('./routes/jwt'));
-
-// App routes
-app.use('/users', require('./routes/users'));
-app.use('/products', require('./routes/products'));
-app.use('/orders', require('./routes/orders'));
+app.use('/api/jwt', require('./routes/jwt'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/products', require('./routes/products'));
+app.use('/api/orders', require('./routes/orders'));
 
 /* ===============================
-   ✅ DASHBOARD STATS ROUTE (ADDED)
+   ✅ DASHBOARD STATS ROUTE
 ================================ */
+const Product = require('./models/Product');
+const Order = require('./models/Order');
 
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
@@ -91,7 +76,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
 /* ===============================
    ✅ PAYMENTS (STRIPE)
 ================================ */
-
 const paymentsRouter = express.Router();
 
 paymentsRouter.post('/create-checkout-session', async (req, res) => {
@@ -101,13 +85,10 @@ paymentsRouter.post('/create-checkout-session', async (req, res) => {
     const quantity = Number(orderData.quantity);
     const pricePerUnit = Number(orderData.pricePerUnit);
 
-    if (!quantity || quantity < 1) {
+    if (!quantity || quantity < 1)
       return res.status(400).json({ message: 'Invalid quantity' });
-    }
-
-    if (!pricePerUnit || pricePerUnit <= 0) {
+    if (!pricePerUnit || pricePerUnit <= 0)
       return res.status(400).json({ message: 'Invalid price' });
-    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -116,9 +97,7 @@ paymentsRouter.post('/create-checkout-session', async (req, res) => {
         {
           price_data: {
             currency: 'usd',
-            product_data: {
-              name: orderData.productTitle,
-            },
+            product_data: { name: orderData.productTitle },
             unit_amount: Math.round(pricePerUnit * 100),
           },
           quantity,
@@ -140,48 +119,33 @@ paymentsRouter.post('/create-checkout-session', async (req, res) => {
   }
 });
 
-app.use('/payments', paymentsRouter);
+app.use('/api/payments', paymentsRouter);
 
 /* ===============================
-   ✅ ROOT
+   ✅ ROOT & FALLBACK
 ================================ */
+app.get('/', (req, res) => res.send('🚀 Garments Tracker Server is Running!'));
 
-app.get('/', (req, res) => {
-  res.send('🚀 Garments Tracker Server is Running!');
-});
-
-/* ===============================
-   ❌ 404 (KEEP LAST)
-================================ */
-
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
+app.use('*', (req, res) =>
+  res.status(404).json({ message: 'Route not found' })
+);
 
 /* ===============================
    ✅ GLOBAL ERROR HANDLER
 ================================ */
-
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.message);
-  res.status(500).json({
-    success: false,
-    message: err.message || 'Something went wrong!',
-  });
+  res.status(500).json({ success: false, message: err.message || 'Something went wrong!' });
 });
 
 /* ===============================
    ✅ SERVER START
 ================================ */
-
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ MongoDB Connected');
-
-    app.listen(port, () => {
-      console.log(`🚀 Server running on port ${port}`);
-    });
+    app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
   } catch (err) {
     console.error('❌ MongoDB Connection Failed:', err.message);
     process.exit(1);

@@ -6,21 +6,24 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// ✅ MODELS (ADD THIS)
+const Product = require('./models/Product');
+const Order = require('./models/Order');
+
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const app = express();
 const port = process.env.PORT || 5000;
 
 /* ===============================
-   ✅ CORS CONFIG (FIXED)
+   ✅ CORS CONFIG
 ================================ */
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://fluffy-gaufre-33be2d.netlify.app', // ✅ Netlify frontend
+  'https://garments-tracker-client.netlify.app',
 ];
 
-// optional env support
 if (process.env.CLIENT_URL) {
   allowedOrigins.push(process.env.CLIENT_URL);
 }
@@ -28,7 +31,6 @@ if (process.env.CLIENT_URL) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // allow Postman / server-to-server
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -63,6 +65,28 @@ app.use('/jwt', require('./routes/jwt'));
 app.use('/users', require('./routes/users'));
 app.use('/products', require('./routes/products'));
 app.use('/orders', require('./routes/orders'));
+
+/* ===============================
+   ✅ DASHBOARD STATS ROUTE (ADDED)
+================================ */
+
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const totalProducts = await Product.countDocuments();
+    const totalOrders = await Order.countDocuments();
+
+    res.json({
+      success: true,
+      totalProducts,
+      totalOrders,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 /* ===============================
    ✅ PAYMENTS (STRIPE)
@@ -119,12 +143,16 @@ paymentsRouter.post('/create-checkout-session', async (req, res) => {
 app.use('/payments', paymentsRouter);
 
 /* ===============================
-   ✅ ROOT & FALLBACK
+   ✅ ROOT
 ================================ */
 
 app.get('/', (req, res) => {
   res.send('🚀 Garments Tracker Server is Running!');
 });
+
+/* ===============================
+   ❌ 404 (KEEP LAST)
+================================ */
 
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });

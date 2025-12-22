@@ -11,19 +11,30 @@ dns.setServers(['8.8.8.8', '8.8.4.4']);
 const app = express();
 const port = process.env.PORT || 5000;
 
+/* ===============================
+   ✅ CORS CONFIG (FIXED)
+================================ */
 
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const allowedOrigins = [
   'http://localhost:5173',
-  CLIENT_URL,
+  'https://fluffy-gaufre-33be2d.netlify.app', // ✅ Netlify frontend
 ];
+
+// optional env support
+if (process.env.CLIENT_URL) {
+  allowedOrigins.push(process.env.CLIENT_URL);
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // allow Postman / server-to-server
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        console.log('❌ Blocked by CORS:', origin);
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -33,21 +44,29 @@ app.use(
   })
 );
 
+/* ===============================
+   ✅ MIDDLEWARES
+================================ */
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+/* ===============================
+   ✅ ROUTES
+================================ */
 
-
-// JWT route
-app.use('/jwt', require('./routes/jwt')); // POST /jwt
+// JWT
+app.use('/jwt', require('./routes/jwt'));
 
 // App routes
 app.use('/users', require('./routes/users'));
 app.use('/products', require('./routes/products'));
 app.use('/orders', require('./routes/orders'));
 
+/* ===============================
+   ✅ PAYMENTS (STRIPE)
+================================ */
 
 const paymentsRouter = express.Router();
 
@@ -81,8 +100,8 @@ paymentsRouter.post('/create-checkout-session', async (req, res) => {
           quantity,
         },
       ],
-      success_url: `${CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-cancel_url: `${CLIENT_URL}/payment-cancel`,
+      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment-cancel`,
       metadata: {
         productId: orderData.productId,
         quantity,
@@ -92,34 +111,45 @@ cancel_url: `${CLIENT_URL}/payment-cancel`,
 
     res.json({ sessionId: session.id });
   } catch (error) {
-    console.error('Stripe Error:', error);
+    console.error('❌ Stripe Error:', error);
     res.status(500).json({ message: error.message || 'Stripe session failed' });
   }
 });
 
 app.use('/payments', paymentsRouter);
 
+/* ===============================
+   ✅ ROOT & FALLBACK
+================================ */
 
 app.get('/', (req, res) => {
-  res.send('Garments Tracker Server is Running! 🚀');
+  res.send('🚀 Garments Tracker Server is Running!');
 });
-
 
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
+/* ===============================
+   ✅ GLOBAL ERROR HANDLER
+================================ */
 
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.message);
-  res.status(500).json({ message: err.message || 'Something went wrong!' });
+  res.status(500).json({
+    success: false,
+    message: err.message || 'Something went wrong!',
+  });
 });
 
+/* ===============================
+   ✅ SERVER START
+================================ */
 
 const startServer = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ MongoDB Connected Successfully');
+    console.log('✅ MongoDB Connected');
 
     app.listen(port, () => {
       console.log(`🚀 Server running on port ${port}`);
@@ -130,11 +160,9 @@ const startServer = async () => {
   }
 };
 
-
 process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down server...');
   await mongoose.connection.close();
-  console.log('MongoDB connection closed.');
   process.exit(0);
 });
 
